@@ -4,16 +4,13 @@
 
 #include "linyaps_box/os/fs.h"
 
+#include "linyaps_box/os/syscall_nr.h"
 #include "linyaps_box/utils/utils.h"
 
 #include <sys/stat.h>
 
 #ifdef LINYAPS_BOX_HAVE_OPENAT2_H
 #  include <linux/openat2.h>
-#endif
-
-#ifndef __NR_openat2
-#  define __NR_openat2 437
 #endif
 
 #include <sys/syscall.h>
@@ -101,11 +98,11 @@ auto openat2(utils::file_descriptor_ref dirfd,
         uint64_t resolve;
     } linux_open_how{ static_cast<uint64_t>(how.opt),
                       static_cast<uint64_t>(how.perms),
-                      static_cast<uint64_t>(how.resolve) };
+                      how.resolve.to_raw() };
 
     while (true) {
         const auto fd = static_cast<int>(
-          ::syscall(__NR_openat2, dirfd, path.c_str(), &linux_open_how, sizeof(linux_open_how)));
+          ::syscall(nr_openat2, dirfd, path.c_str(), &linux_open_how, sizeof(linux_open_how)));
         if (LIKELY(fd >= 0)) {
             return utils::file_descriptor{ fd };
         }
@@ -120,9 +117,9 @@ auto openat2(utils::file_descriptor_ref dirfd,
 
 auto unlinkat(utils::file_descriptor_ref dirfd,
               const std::filesystem::path &path,
-              sys::at_flag flags) noexcept -> Result<void>
+              utils::bitflags<sys::at_flag> flags) noexcept -> Result<void>
 {
-    if (UNLIKELY(::unlinkat(dirfd, path.c_str(), static_cast<int>(flags)) < 0)) {
+    if (UNLIKELY(::unlinkat(dirfd, path.c_str(), flags.to_raw()) < 0)) {
 
         return unexpected{ make_error_code(errno) };
     }
@@ -156,11 +153,10 @@ auto renameat2(utils::file_descriptor_ref olddirfd,
                const std::filesystem::path &oldpath,
                utils::file_descriptor_ref newdirfd,
                const std::filesystem::path &newpath,
-               sys::rename_flag flags) noexcept -> Result<void>
+               utils::bitflags<sys::rename_flag> flags) noexcept -> Result<void>
 {
-    if (UNLIKELY(
-          ::renameat2(olddirfd, oldpath.c_str(), newdirfd, newpath.c_str(), static_cast<int>(flags))
-          < 0)) {
+    if (UNLIKELY(::renameat2(olddirfd, oldpath.c_str(), newdirfd, newpath.c_str(), flags.to_raw())
+                 < 0)) {
 
         return unexpected{ make_error_code(errno) };
     }
@@ -181,10 +177,10 @@ auto fstat(utils::file_descriptor_ref fd) noexcept -> Result<struct stat>
 
 auto fstatat(utils::file_descriptor_ref dirfd,
              const std::filesystem::path &path,
-             sys::at_flag flags) noexcept -> Result<struct stat>
+             utils::bitflags<sys::at_flag> flags) noexcept -> Result<struct stat>
 {
     struct stat st{ };
-    if (UNLIKELY(::fstatat(dirfd, path.c_str(), &st, static_cast<int>(flags)) < 0)) {
+    if (UNLIKELY(::fstatat(dirfd, path.c_str(), &st, flags.to_raw()) < 0)) {
 
         return unexpected{ make_error_code(errno) };
     }
@@ -277,11 +273,10 @@ auto linkat(utils::file_descriptor_ref olddirfd,
             const std::filesystem::path &oldpath,
             utils::file_descriptor_ref newdirfd,
             const std::filesystem::path &newpath,
-            sys::at_flag flags) noexcept -> Result<void>
+            utils::bitflags<sys::at_flag> flags) noexcept -> Result<void>
 {
-    if (UNLIKELY(
-          ::linkat(olddirfd, oldpath.c_str(), newdirfd, newpath.c_str(), static_cast<int>(flags))
-          < 0)) {
+    if (UNLIKELY(::linkat(olddirfd, oldpath.c_str(), newdirfd, newpath.c_str(), flags.to_raw())
+                 < 0)) {
 
         return unexpected{ make_error_code(errno) };
     }
@@ -311,9 +306,10 @@ auto fcntl_dupfd_cloexec(utils::file_descriptor_ref fd, int newfd) noexcept
     return utils::file_descriptor{ ret };
 }
 
-auto fcntl_setfl(utils::file_descriptor_ref fd, sys::open_flag flag) noexcept -> Result<void>
+auto fcntl_setfl(utils::file_descriptor_ref fd, utils::bitflags<sys::open_flag> flag) noexcept
+  -> Result<void>
 {
-    if (UNLIKELY(::fcntl(fd, F_SETFL, fmt::underlying(flag)) < 0)) {
+    if (UNLIKELY(::fcntl(fd, F_SETFL, flag.to_raw()) < 0)) {
 
         return unexpected(make_error_code(errno));
     }
@@ -331,9 +327,10 @@ auto fcntl_getfl(utils::file_descriptor_ref fd) noexcept -> Result<sys::open_opt
     return sys::open_option::from_raw(ret);
 }
 
-auto fcntl_setfd(utils::file_descriptor_ref fd, sys::fd_flag flag) noexcept -> Result<void>
+auto fcntl_setfd(utils::file_descriptor_ref fd, utils::bitflags<sys::fd_flag> flag) noexcept
+  -> Result<void>
 {
-    if (UNLIKELY(::fcntl(fd, F_SETFD, fmt::underlying(flag)) < 0)) {
+    if (UNLIKELY(::fcntl(fd, F_SETFD, flag.to_raw()) < 0)) {
 
         return unexpected(make_error_code(errno));
     }
@@ -356,7 +353,7 @@ auto getdents64(utils::file_descriptor_ref fd, utils::span<std::byte> buf) noexc
 {
     // getdents64 was added after glibc 2.30 but we need support 2.28.
     // so use syscall directly
-    auto ret = syscall(SYS_getdents64, fd, buf.data(), buf.size());
+    auto ret = syscall(__NR_getdents64, fd, buf.data(), buf.size());
     if (UNLIKELY(ret < 0)) {
 
         return unexpected{ make_error_code(errno) };
@@ -393,12 +390,11 @@ auto fchmod(utils::file_descriptor_ref fd, std::filesystem::perms perm) noexcept
 auto fchmodat(utils::file_descriptor_ref dirfd,
               const std::filesystem::path &path,
               std::filesystem::perms perm,
-              sys::at_flag flags) noexcept -> Result<void>
+              utils::bitflags<sys::at_flag> flags) noexcept -> Result<void>
 {
     while (true) {
-        if (UNLIKELY(
-              ::fchmodat(dirfd, path.c_str(), static_cast<mode_t>(perm), static_cast<int>(flags))
-              < 0)) {
+        if (UNLIKELY(::fchmodat(dirfd, path.c_str(), static_cast<mode_t>(perm), flags.to_raw())
+                     < 0)) {
             if (errno == EINTR) {
                 continue;
             }
@@ -430,10 +426,10 @@ auto fchmodat(utils::file_descriptor_ref dirfd,
                             const std::filesystem::path &path,
                             uid_t owner,
                             gid_t group,
-                            sys::at_flag flags) noexcept -> Result<void>
+                            utils::bitflags<sys::at_flag> flags) noexcept -> Result<void>
 {
     while (true) {
-        if (UNLIKELY(::fchownat(dirfd, path.c_str(), owner, group, static_cast<int>(flags)) < 0)) {
+        if (UNLIKELY(::fchownat(dirfd, path.c_str(), owner, group, flags.to_raw()) < 0)) {
             if (errno == EINTR) {
                 continue;
             }
