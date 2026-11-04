@@ -9,6 +9,7 @@ Build-Depends:
  pkg-config,
  libseccomp-dev,
  nlohmann-json3-dev (>= 3.5.0) | hello,
+ libgmock-dev,
  libgtest-dev,
  libcap-dev,
  libsystemd-dev
