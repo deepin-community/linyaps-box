@@ -22,7 +22,7 @@ mkdir build && cd build
 cmake -DCMAKE_INSTALL_PREFIX:PATH=%{_prefix} \
       -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
       -DBUILD_SHARED_LIBS=OFF \
-      -Dlinyaps-box_CPM_LOCAL_PACKAGES_ONLY=ON ..
+      -Dlinyaps-box_OFFLINE_BUILD=ON ..
 %make_build
 
 %install
